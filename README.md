@@ -1,122 +1,115 @@
-# Discord Media Bot (Python)
+# Discord Media Bot — Python Rewrite
 
-This project is a Python rewrite of a Discord bot that fetches and posts random media from Scrolller and Reddit subreddits using the GraphQL API.
-It exposes several slash commands to retrieve images and videos and is restricted to NSFW Discord channels.
+A Python/Pycord rewrite of an earlier [Go Discord bot](https://github.com/ycallerisa/discord-media-bot-golang). The bot queries Scrolller's GraphQL API and returns selected images or videos through Discord slash commands, while restricting execution to channels marked as age-restricted.
 
-Important: This bot is designed for NSFW media and must only be used in Discord channels that are explicitly marked as NSFW. Use responsibly and respect Discord’s Terms of Service.
+The repository is a personal integration prototype and is not operated as a hosted public service.
 
-## Features
+> Content warning: this project retrieves adult media. Deploy it only in appropriately age-restricted Discord channels and in compliance with Discord's rules and applicable law.
 
-- Discord slash commands for fetching media  
-  - /pr0n – fetch random media from NSFW subreddits discovered via Scrolller  
-  - /pr0n_video – fetch a high-quality optimized video from a specific subreddit  
-  - /pr0n_image – fetch a high-quality optimized image from a specific subreddit  
-- GraphQL integration with Scrolller’s API (DiscoverSubreddits and Subreddit queries)  
-- Channel-level NSFW checks to ensure commands are only used in NSFW channels  
-- Per-guild usage counter with a donation message every 100 successful calls  
-- Simple, self-contained Python codebase that is easy to extend with new commands or filters
+## Goals of the rewrite
 
-## Tech Stack
+- replace text parsing with native Discord slash commands;
+- reduce the amount of framework and data-model code;
+- load the Discord token from the environment;
+- use GraphQL variables for user-selected community names;
+- keep channel validation in a shared guard;
+- add explicit HTTP timeouts and centralized request handling.
 
-- Language: Python 3  
-- Discord framework: discord.py (discord.ext.commands with slash commands)  
-- HTTP client: requests  
-- API: Scrolller GraphQL API (custom queries and variables)
+## Commands
 
-## Getting Started
+| Slash command | Behavior |
+| --- | --- |
+| `/pr0n` | Return random media from the discovery endpoint |
+| `/pr0n_video subreddit:<name>` | Return the highest-width optimized video from a random post |
+| `/pr0n_image subreddit:<name>` | Return the highest-width optimized image from a random post |
 
-### Prerequisites
+Every slash command calls `check_nsfw_and_increment` before making an external request. The current usage counter is held in memory per Discord server.
 
-- Python 3.10 or newer  
-- A Discord application and bot token  
-- A Discord server where you can add and test the bot  
-- pip to install Python dependencies
+## Architecture
 
-### Installation
+```text
+Discord slash command
+        |
+        v
+age-restricted channel guard
+        |
+        v
+GraphQL request with variables
+        |
+        v
+media filtering and selection
+        |
+        v
+Discord response
+```
 
-1. Clone the repository
+| File | Responsibility |
+| --- | --- |
+| `main.py` | Bot startup, shared GraphQL client, commands and media selection |
+| `random_sub_pic_or_vid.py` | Standalone discovery-query experiment |
+| `sub_picture.py` | Standalone image-query experiment |
+| `sub_video.py` | Standalone video-query experiment |
 
-    git clone https://github.com/kathiouchka/discord-media-bot-python.git
-    cd discord-media-bot-python
+The three standalone scripts are development experiments; the running bot uses `main.py`.
 
-2. (Optional) Create and activate a virtual environment
+## Local setup
 
-    python -m venv .venv  
-    source .venv/bin/activate  
-    (On Windows: .venv\Scripts\activate)
+Requirements:
 
-3. Install dependencies
+- Python 3.10 or later;
+- a Discord application and bot token;
+- a Discord test server with an age-restricted channel.
 
-    pip install -r requirements.txt
+Create a virtual environment and install the current runtime dependencies:
 
-A typical requirements.txt for this project would include:
-discord.py  
-requests
+```bash
+git clone https://github.com/ycallerisa/discord-media-bot-python.git
+cd discord-media-bot-python
 
-4. Set your Discord bot token as an environment variable
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install py-cord requests
+```
 
-    export DISCORD_BOT_TOKEN="your_bot_token_here"
+Set the bot token without committing it:
+
+```bash
+export DISCORD_BOT_TOKEN="your-token"
+python main.py
+```
 
 On Windows PowerShell:
-    $env:DISCORD_BOT_TOKEN="your_bot_token_here"
 
-## Running the Bot
+```powershell
+$env:DISCORD_BOT_TOKEN = "your-token"
+python main.py
+```
 
-Run the bot with:
+## Existing safety controls
 
-    python main.py
+- commands refuse to run outside channels marked as age-restricted;
+- the Discord token is read from an environment variable;
+- GraphQL operations pass the selected community through variables;
+- external HTTP calls use a ten-second timeout;
+- HTTP and JSON failures return a controlled Discord response instead of terminating the bot.
 
-When the bot is connected, you should see a log message in your terminal.
-Make sure the bot has the required permissions and the applications.commands scope when you invite it to your server.
+## Known limitations
 
-## Usage
+- `requests` performs synchronous network calls inside asynchronous command handlers and can block the bot event loop;
+- there is no per-user rate limit, concurrency limit or persistent quota;
+- the community name is not yet length-bounded or validated against an allowlist;
+- usage counters are lost on restart and are not safe across multiple instances;
+- the external API is unofficial and may change without notice;
+- the repository does not yet include a dependency manifest, automated tests or CI checks;
+- the standalone scripts duplicate request and filtering logic from `main.py`.
 
-All commands must be executed in a Discord channel marked as NSFW.
+A production-oriented revision should use an asynchronous HTTP client, add input validation and rate limiting, centralize the API adapter, persist operational state and test every authorization path.
 
-### /pr0n  
-Fetch a random piece of NSFW media from discovered NSFW subreddits via Scrolller.
+## Engineering focus
 
-### /pr0n_video subreddit:<name>  
-Fetch an optimized video from a specific subreddit (best width and optimized source).
+This rewrite demonstrates migration between languages, third-party GraphQL integration, Discord interaction design and basic content-access controls. The comparison with the Go version documents the trade-off between a strongly typed, lower-level implementation and a smaller Python service optimized for iteration speed.
 
-### /pr0n_image subreddit:<name>  
-Fetch an optimized image from a specific subreddit (best width and optimized source).
+## Responsible use
 
-If a command is used in a non-NSFW channel, the bot sends a warning and refuses to post media.
+Do not use the bot to bypass platform restrictions or distribute content without authorization. Server administrators remain responsible for access control, moderation and compliance.
 
-Every 100 successful requests per guild, the bot sends a donation reminder message.
-
-## Internals
-
-The bot is structured around:
-
-- A shared make_api_request function that performs HTTP POST requests against the Scrolller GraphQL endpoint with timeout and error handling  
-- Two main GraphQL queries:  
-  - DiscoverSubredditsQuery for discovering NSFW subreddits and retrieving child media items  
-  - SubredditQuery for retrieving posts from a specific subreddit with VIDEO or PICTURE filters  
-- A helper named check_nsfw_and_increment that:  
-  - Ensures the command is executed in a NSFW channel  
-  - Tracks per-guild usage and triggers a donation reminder periodically
-
-Media selection logic prioritizes:
-
-- Optimized sources (isOptimized = true)  
-- Highest available width for the best quality  
-- Video sources ending in mp4 or webm
-
-## Possible Improvements
-
-- Add a configuration file or environment variables to:  
-  - Whitelist or blacklist specific subreddits  
-  - Adjust media filters (minimum width, allowed hosts, etc.)  
-- Add unit tests for:  
-  - Media selection logic  
-  - NSFW gating behavior  
-- Add a small CI workflow (GitHub Actions) for linting and tests  
-- Refactor commands into separate modules for maintainability  
-- Provide a "safe mode" using SFW subreddits for demos
-
-## Disclaimer
-
-This bot interacts with NSFW content and must only be used in compliance with Discord’s Terms of Service and local regulations.
-The author is not responsible for misuse or policy violations related to this bot.
